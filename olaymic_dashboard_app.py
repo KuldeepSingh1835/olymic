@@ -10,6 +10,19 @@ from visualization import (
     radar_compare_countries
 )
 from prediction import predict_future_medals, predict_multiple_countries_shared_plot
+from data_loader import load_athlete_data
+
+df = load_athlete_data()
+
+# Convert 'Medal' column into 'Gold', 'Silver', 'Bronze' if necessary
+if 'Gold' not in df.columns or 'Silver' not in df.columns or 'Bronze' not in df.columns:
+    df = df[df['Medal'].notna()]
+    medal_counts = df.groupby(['Year', 'NOC', 'Medal']).size().unstack(fill_value=0)
+    for medal in ['Gold', 'Silver', 'Bronze']:
+        if medal not in medal_counts.columns:
+            medal_counts[medal] = 0
+    medal_counts = medal_counts.reset_index()
+    df = medal_counts
 
 # Page config
 st.set_page_config(page_title="Olympics Dashboard", layout="wide", page_icon="🏆")
@@ -36,7 +49,7 @@ st.markdown("""
 # Load default historical data
 @st.cache_data
 def load_default_historical_data():
-    return load_historical_data("data/athlete_events.csv")
+    return df
 
 # Initialize historical data if not already loaded
 if 'historical_df' not in st.session_state:
@@ -67,41 +80,27 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from dateutil import tz
 
-
-
 if menu == "Live Medal Tally":
     st.subheader("📊 Live Medal Tally")
     live_df = fetch_medal_tally()
     if live_df is not None:
         st.dataframe(live_df, use_container_width=True)
 
-
 elif menu == "Event Schedule":
     st.subheader("📅 Event Schedule")
     event_df = fetch_event_schedule()
 
     if event_df is not None and not event_df.empty:
-        # Ensure date columns are datetime
         event_df['Date'] = pd.to_datetime(event_df['Date'], errors='coerce')
         event_df['Start Time'] = pd.to_datetime(event_df['Start Time'], errors='coerce', utc=True)
         event_df['End Time'] = pd.to_datetime(event_df['End Time'], errors='coerce', utc=True)
-
-        # Optional: Convert to local time
-        from dateutil import tz
-
         local_zone = tz.tzlocal()
         event_df['Start Time'] = event_df['Start Time'].dt.tz_convert(local_zone)
         event_df['End Time'] = event_df['End Time'].dt.tz_convert(local_zone)
-
-        # Sort by soonest first
         event_df = event_df.sort_values("Start Time")
-
-        # Display limited columns
-        st.dataframe(event_df[['Date', 'Discipline', 'Event', 'Venue', 'Start Time', 'End Time']],
-                     use_container_width=True)
+        st.dataframe(event_df[['Date', 'Discipline', 'Event', 'Venue', 'Start Time', 'End Time']], use_container_width=True)
     else:
         st.warning("No upcoming event schedule available.")
-
 
 elif menu == "Countdown to Next Event":
     st.subheader("⏳ Countdown to Next Olympic Event")
@@ -110,7 +109,6 @@ elif menu == "Countdown to Next Event":
         event_df['Start Time'] = pd.to_datetime(event_df['Start Time'], utc=True).dt.tz_convert(tz.tzlocal())
         now = datetime.now(tz.tzlocal())
         future_events = event_df[event_df['Start Time'] > now].sort_values('Start Time')
-        st.write(future_events.head())  # Debug: show the upcoming event(s)
         if not future_events.empty:
             next_event = future_events.iloc[0]
             countdown_target = next_event['Start Time']
@@ -161,7 +159,6 @@ elif menu == "World Medal Map":
                 [0.8, "rgb(0, 166, 251)"],
                 [1.0, "rgb(3, 4, 94)"]
             ]
-
             fig = px.choropleth(
                 merged,
                 locations="region",
@@ -171,7 +168,6 @@ elif menu == "World Medal Map":
                 color_continuous_scale=color_scale,
                 title="Total Historical Medals by Country"
             )
-
             st.plotly_chart(fig, use_container_width=True)
     else:
         live_df = fetch_medal_tally()
@@ -193,7 +189,6 @@ elif menu == "World Medal Map":
                 color_continuous_scale=color_scale,
                 title="Live Medal Tally by Country"
             )
-
             st.plotly_chart(fig, use_container_width=True)
     st.subheader("📅 Event Schedule")
     event_df = fetch_event_schedule()
@@ -217,7 +212,6 @@ elif menu == "Country Medal Trend":
 elif menu == "Predict Future Medals":
     st.subheader("🔮 Predict Future Medals")
     code = st.text_input("Enter Country NOC Code:").upper()
-
     if code and st.session_state['historical_df'] is not None:
         data = get_country_medal_counts(st.session_state['historical_df'], code)
         predict_future_medals(data, code)
@@ -245,7 +239,6 @@ elif menu == "Compare Two Countries (Radar)":
 elif menu == "Predict Multiple Countries":
     st.subheader("📊 Predict Multiple Countries")
     codes = st.text_input("Enter comma-separated NOC codes (e.g., USA, IND, CHN):")
-
     if codes and st.session_state['historical_df'] is not None:
         country_list = [c.strip().upper() for c in codes.split(',') if c.strip()]
         predict_multiple_countries_shared_plot(st.session_state['historical_df'], country_list)
